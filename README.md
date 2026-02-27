@@ -16,6 +16,48 @@
 
 ---
 
+## OpenAPI TUI
+
+Explore any OpenAPI schema right in your terminal — no browser required.
+
+```bash
+uvx openapi-tools view https://petstore3.swagger.io/api/v3/openapi.json
+```
+
+You can also point it at a local file:
+
+```bash
+uvx openapi-tools view ./my-api.yaml
+```
+
+### Features
+
+- **Endpoints browser** — all routes grouped by tag in a navigable tree, with per-endpoint details across dedicated tabs: Info, Path parameters, Query parameters, Headers, Request body, and Responses.
+- **Schemas browser** — browse every component schema with a full property table including types, constraints, and required markers.
+- **Schema navigation** — clickable schema links inside endpoint and schema detail panels let you jump straight to the referenced type, with breadcrumb-style back navigation.
+- **Live reload** — press `Ctrl+R` to re-fetch the schema from its original source without leaving the TUI.
+- **Keyboard-driven** — switch between Endpoints (`E`) and Schemas (`S`) views, quit with `Q` or `Ctrl+C`.
+
+### Screenshots
+
+#### Endpoints list
+
+![Endpoints list](docs/images/tui-endpoints.svg)
+
+#### Endpoint detail
+
+![Endpoint detail](docs/images/tui-endpoint-detail.svg)
+
+#### Schemas list
+
+![Schemas list](docs/images/tui-schemas.svg)
+
+#### Schema detail
+
+![Schema detail](docs/images/tui-schema-detail.svg)
+
+---
+
 ## Development
 
 ### Setup environment
@@ -36,6 +78,14 @@ Execute the following command to apply linting and check typing:
 
 ```bash
 just lint
+```
+
+### Regenerate screenshots
+
+The screenshots in this README are generated from a live Petstore schema using Textual's headless mode:
+
+```bash
+uv run scripts/generate_screenshots.py
 ```
 
 ### Publish a new version
