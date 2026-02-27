@@ -130,6 +130,9 @@ components:
                     type: string
                 tag:
                     type: string
+                size:
+                    type: string
+                    enum: [small, medium, large]
 
         Order:
             type: object

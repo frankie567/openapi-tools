@@ -5,6 +5,8 @@ import pytest
 from openapi_tools._diff import (
     APIDiff,
     ChangeType,
+    RequestBodyChange,
+    ResponseChange,
     compare,
     to_json,
     to_markdown,
@@ -165,3 +167,111 @@ def test_to_markdown_no_changes() -> None:
     assert "# API Diff" in output
     assert "## Operations" not in output
     assert "## Schemas" not in output
+
+
+def test_enum_value_added_in_schema_property(diff: APIDiff) -> None:
+    newpet_change = next(
+        c
+        for c in diff.schema_changes
+        if c.name == "NewPet" and c.change_type == ChangeType.MODIFIED
+    )
+    size_change = next(
+        p
+        for p in newpet_change.property_changes
+        if p.name == "size" and p.change_type == ChangeType.MODIFIED
+    )
+    enum_fc = next(fc for fc in size_change.field_changes if fc.field == "enum")
+    assert "extra_large" not in (enum_fc.old_value or [])
+    assert "extra_large" in (enum_fc.new_value or [])
+
+
+def test_request_body_required_changed(diff: APIDiff) -> None:
+    post_change = next(
+        c
+        for c in diff.operation_changes
+        if c.path == "/pets"
+        and c.method == "post"
+        and c.change_type == ChangeType.MODIFIED
+    )
+    assert post_change.request_body_change is not None
+    assert post_change.request_body_change.change_type == ChangeType.MODIFIED
+    required_fc = next(
+        fc
+        for fc in post_change.request_body_change.field_changes
+        if fc.field == "required"
+    )
+    assert required_fc.old_value is True
+    assert required_fc.new_value is False
+
+
+def test_response_removed(diff: APIDiff) -> None:
+    get_pets_change = next(
+        c
+        for c in diff.operation_changes
+        if c.path == "/pets"
+        and c.method == "get"
+        and c.change_type == ChangeType.MODIFIED
+    )
+    removed_responses = [
+        r
+        for r in get_pets_change.response_changes
+        if r.change_type == ChangeType.REMOVED
+    ]
+    assert any(r.status_code == "400" for r in removed_responses)
+
+
+def test_response_added(diff: APIDiff) -> None:
+    get_pets_change = next(
+        c
+        for c in diff.operation_changes
+        if c.path == "/pets"
+        and c.method == "get"
+        and c.change_type == ChangeType.MODIFIED
+    )
+    added_responses = [
+        r for r in get_pets_change.response_changes if r.change_type == ChangeType.ADDED
+    ]
+    assert any(r.status_code == "429" for r in added_responses)
+
+
+def test_response_modified_description(diff: APIDiff) -> None:
+    get_pet_change = next(
+        c
+        for c in diff.operation_changes
+        if c.path == "/pets/{petId}"
+        and c.method == "get"
+        and c.change_type == ChangeType.MODIFIED
+    )
+    modified_responses = [
+        r
+        for r in get_pet_change.response_changes
+        if r.change_type == ChangeType.MODIFIED
+    ]
+    response_200 = next(r for r in modified_responses if r.status_code == "200")
+    desc_fc = next(fc for fc in response_200.field_changes if fc.field == "description")
+    assert desc_fc.old_value == "A pet"
+    assert desc_fc.new_value == "The requested pet"
+
+
+def test_request_body_change_is_instance(diff: APIDiff) -> None:
+    post_change = next(
+        c for c in diff.operation_changes if c.path == "/pets" and c.method == "post"
+    )
+    assert isinstance(post_change.request_body_change, RequestBodyChange)
+
+
+def test_response_change_is_instance(diff: APIDiff) -> None:
+    get_pets_change = next(
+        c for c in diff.operation_changes if c.path == "/pets" and c.method == "get"
+    )
+    assert all(isinstance(r, ResponseChange) for r in get_pets_change.response_changes)
+
+
+def test_to_markdown_includes_request_body_change(diff: APIDiff) -> None:
+    output = to_markdown(diff)
+    assert "Request body" in output
+
+
+def test_to_markdown_includes_response_change(diff: APIDiff) -> None:
+    output = to_markdown(diff)
+    assert "Response" in output

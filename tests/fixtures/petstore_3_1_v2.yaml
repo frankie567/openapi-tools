@@ -40,15 +40,15 @@ paths:
                                 type: array
                                 items:
                                     $ref: "#/components/schemas/Pet"
-                "400":
-                    description: Bad request
+                "429":
+                    description: Too many requests
         post:
             operationId: createPet
             summary: Create a pet
             tags:
                 - Pets
             requestBody:
-                required: true
+                required: false
                 content:
                     application/json:
                         schema:
@@ -75,7 +75,7 @@ paths:
                 - Pets
             responses:
                 "200":
-                    description: A pet
+                    description: The requested pet
                     content:
                         application/json:
                             schema:
@@ -131,6 +131,9 @@ components:
                     type: string
                 tag:
                     type: string
+                size:
+                    type: string
+                    enum: [small, medium, large, extra_large]
 
         Vaccination:
             type: object

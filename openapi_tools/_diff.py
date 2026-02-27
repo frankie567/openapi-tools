@@ -36,11 +36,24 @@ class ParameterChange(BaseModel):
     field_changes: list[FieldChange] = []
 
 
+class RequestBodyChange(BaseModel):
+    change_type: ChangeType
+    field_changes: list[FieldChange] = []
+
+
+class ResponseChange(BaseModel):
+    status_code: str
+    change_type: ChangeType
+    field_changes: list[FieldChange] = []
+
+
 class OperationChange(BaseModel):
     path: str
     method: str
     change_type: ChangeType
     parameter_changes: list[ParameterChange] = []
+    request_body_change: RequestBodyChange | None = None
+    response_changes: list[ResponseChange] = []
 
 
 class SchemaPropertyChange(BaseModel):
@@ -211,11 +224,170 @@ def _compare_schema_properties(
                         new_value=head_prop.description,
                     )
                 )
+            if base_prop.enum != head_prop.enum:
+                field_changes.append(
+                    FieldChange(
+                        field="enum",
+                        old_value=base_prop.enum,
+                        new_value=head_prop.enum,
+                    )
+                )
 
         if field_changes:
             changes.append(
                 SchemaPropertyChange(
                     name=name,
+                    change_type=ChangeType.MODIFIED,
+                    field_changes=field_changes,
+                )
+            )
+
+    return changes
+
+
+def _resolve_request_body(
+    rb: _v30.RequestBody | _v31.RequestBody | _v30.Reference | _v31.Reference | None,
+    parser: OpenAPIParser,
+) -> _v30.RequestBody | _v31.RequestBody | None:
+    if rb is None:
+        return None
+    if isinstance(rb, _REFERENCE_TYPES):
+        resolved = parser.resolve_reference(rb)
+        if isinstance(resolved, (_v30.RequestBody, _v31.RequestBody)):
+            return resolved
+        return None
+    return rb
+
+
+def _compare_request_body(
+    base_rb: _v30.RequestBody
+    | _v31.RequestBody
+    | _v30.Reference
+    | _v31.Reference
+    | None,
+    head_rb: _v30.RequestBody
+    | _v31.RequestBody
+    | _v30.Reference
+    | _v31.Reference
+    | None,
+    base_parser: OpenAPIParser,
+    head_parser: OpenAPIParser,
+) -> RequestBodyChange | None:
+    base = _resolve_request_body(base_rb, base_parser)
+    head = _resolve_request_body(head_rb, head_parser)
+
+    if base is None and head is None:
+        return None
+    if base is None:
+        return RequestBodyChange(change_type=ChangeType.ADDED)
+    if head is None:
+        return RequestBodyChange(change_type=ChangeType.REMOVED)
+
+    field_changes: list[FieldChange] = []
+    if base.required != head.required:
+        field_changes.append(
+            FieldChange(
+                field="required", old_value=base.required, new_value=head.required
+            )
+        )
+    if base.description != head.description:
+        field_changes.append(
+            FieldChange(
+                field="description",
+                old_value=base.description,
+                new_value=head.description,
+            )
+        )
+    base_media_types = set(base.content or {})
+    head_media_types = set(head.content or {})
+    for mt in base_media_types - head_media_types:
+        field_changes.append(
+            FieldChange(field=f"content.{mt}", old_value=mt, new_value=None)
+        )
+    for mt in head_media_types - base_media_types:
+        field_changes.append(
+            FieldChange(field=f"content.{mt}", old_value=None, new_value=mt)
+        )
+
+    if not field_changes:
+        return None
+    return RequestBodyChange(
+        change_type=ChangeType.MODIFIED, field_changes=field_changes
+    )
+
+
+def _resolve_response(
+    r: _v30.Response | _v31.Response | _v30.Reference | _v31.Reference,
+    parser: OpenAPIParser,
+) -> _v30.Response | _v31.Response | None:
+    if isinstance(r, _REFERENCE_TYPES):
+        resolved = parser.resolve_reference(r)
+        if isinstance(resolved, (_v30.Response, _v31.Response)):
+            return resolved
+        return None
+    return r
+
+
+def _compare_responses(
+    base_responses: dict[str, Any] | None,
+    head_responses: dict[str, Any] | None,
+    base_parser: OpenAPIParser,
+    head_parser: OpenAPIParser,
+) -> list[ResponseChange]:
+    base_dict = base_responses or {}
+    head_dict = head_responses or {}
+    changes: list[ResponseChange] = []
+
+    for code in set(base_dict) - set(head_dict):
+        changes.append(ResponseChange(status_code=code, change_type=ChangeType.REMOVED))
+
+    for code in set(head_dict) - set(base_dict):
+        changes.append(ResponseChange(status_code=code, change_type=ChangeType.ADDED))
+
+    for code in set(base_dict) & set(head_dict):
+        base_r = _resolve_response(base_dict[code], base_parser)
+        head_r = _resolve_response(head_dict[code], head_parser)
+        if base_r is None or head_r is None:
+            continue
+        field_changes: list[FieldChange] = []
+        if base_r.description != head_r.description:
+            field_changes.append(
+                FieldChange(
+                    field="description",
+                    old_value=base_r.description,
+                    new_value=head_r.description,
+                )
+            )
+        base_media_types = set(base_r.content or {})
+        head_media_types = set(head_r.content or {})
+        for mt in base_media_types - head_media_types:
+            field_changes.append(
+                FieldChange(field=f"content.{mt}", old_value=mt, new_value=None)
+            )
+        for mt in head_media_types - base_media_types:
+            field_changes.append(
+                FieldChange(field=f"content.{mt}", old_value=None, new_value=mt)
+            )
+        for mt in base_media_types & head_media_types:
+            base_schema = (base_r.content or {}).get(mt)
+            head_schema = (head_r.content or {}).get(mt)
+            if base_schema is not None and head_schema is not None:
+                base_s = base_schema.media_type_schema
+                head_s = head_schema.media_type_schema
+                base_ref = base_s.ref if isinstance(base_s, _REFERENCE_TYPES) else None
+                head_ref = head_s.ref if isinstance(head_s, _REFERENCE_TYPES) else None
+                if base_ref != head_ref:
+                    field_changes.append(
+                        FieldChange(
+                            field=f"content.{mt}.schema",
+                            old_value=base_ref,
+                            new_value=head_ref,
+                        )
+                    )
+        if field_changes:
+            changes.append(
+                ResponseChange(
+                    status_code=code,
                     change_type=ChangeType.MODIFIED,
                     field_changes=field_changes,
                 )
@@ -250,13 +422,21 @@ def compare(base: OpenAPIParser, head: OpenAPIParser) -> APIDiff:
             base,
             head,
         )
-        if param_changes:
+        rb_change = _compare_request_body(
+            base_op.requestBody, head_op.requestBody, base, head
+        )
+        resp_changes = _compare_responses(
+            base_op.responses, head_op.responses, base, head
+        )
+        if param_changes or rb_change is not None or resp_changes:
             operation_changes.append(
                 OperationChange(
                     path=path,
                     method=method,
                     change_type=ChangeType.MODIFIED,
                     parameter_changes=param_changes,
+                    request_body_change=rb_change,
+                    response_changes=resp_changes,
                 )
             )
 
@@ -333,6 +513,24 @@ def to_markdown(diff: APIDiff) -> str:
                     lines.append(
                         f"    - `{fc.field}`: `{fc.old_value}` → `{fc.new_value}`"
                     )
+            if change.request_body_change is not None:
+                rb_icon = _ICONS[change.request_body_change.change_type]
+                lines.append(
+                    f"  - {rb_icon} Request body {change.request_body_change.change_type}"
+                )
+                for fc in change.request_body_change.field_changes:
+                    lines.append(
+                        f"    - `{fc.field}`: `{fc.old_value}` → `{fc.new_value}`"
+                    )
+            for rc in sorted(change.response_changes, key=lambda r: r.status_code):
+                resp_icon = _ICONS[rc.change_type]
+                lines.append(
+                    f"  - {resp_icon} Response `{rc.status_code}` {rc.change_type}"
+                )
+                for fc in rc.field_changes:
+                    lines.append(
+                        f"    - `{fc.field}`: `{fc.old_value}` → `{fc.new_value}`"
+                    )
         lines.append("")
 
     if diff.schema_changes:
@@ -363,6 +561,8 @@ __all__ = [
     "FieldChange",
     "OperationChange",
     "ParameterChange",
+    "RequestBodyChange",
+    "ResponseChange",
     "SchemaChange",
     "SchemaPropertyChange",
     "compare",
