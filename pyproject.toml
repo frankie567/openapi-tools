@@ -20,6 +20,9 @@ dependencies = [
     "textual>=8.0.0",
 ]
 
+[project.scripts]
+openapi-tools = "openapi_tools._cli:main"
+
 [project.urls]
 Documentation = "https://frankie567.github.io/openapi-tools/"
 Source = "https://github.com/frankie567/openapi-tools"

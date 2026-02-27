@@ -1,4 +1,4 @@
-"""CLI entry point for openapi-tui."""
+"""CLI entry point for openapi-tools."""
 
 from __future__ import annotations
 
@@ -6,19 +6,23 @@ import sys
 
 import click
 
-from .._parser import OpenAPIParser
-from .app import OpenAPITUIApp
+from ._parser import OpenAPIParser
+from .tui.app import OpenAPITUIApp
 
 
-@click.command()
-@click.argument("schema", metavar="SCHEMA")
+@click.group()
 @click.version_option()
-def main(schema: str) -> None:
+def main() -> None:
+    """Python tools to work with OpenAPI schemas."""
+
+
+@main.command()
+@click.argument("schema", metavar="SCHEMA")
+def view(schema: str) -> None:
     """Explore an OpenAPI schema in a terminal UI.
 
     SCHEMA can be a local file path (JSON or YAML) or a URL.
     """
-
     try:
         parser = OpenAPIParser.from_source(schema)
     except FileNotFoundError:
