@@ -1,0 +1,144 @@
+openapi: "3.1.0"
+info:
+    title: Pet Store
+    version: "2.0.0"
+    description: A sample pet store API (v2)
+
+paths:
+    /pets:
+        get:
+            operationId: listPets
+            summary: List all pets
+            description: Returns a list of all pets in the store.
+            tags:
+                - Pets
+            parameters:
+                - name: limit
+                  in: query
+                  required: true
+                  description: Maximum number of items to return
+                  schema:
+                      type: integer
+                - name: X-API-Key
+                  in: header
+                  required: true
+                  description: API key for auth
+                  schema:
+                      type: string
+                - name: filter
+                  in: query
+                  required: false
+                  description: Filter pets by name
+                  schema:
+                      type: string
+            responses:
+                "200":
+                    description: A list of pets
+                    content:
+                        application/json:
+                            schema:
+                                type: array
+                                items:
+                                    $ref: "#/components/schemas/Pet"
+                "400":
+                    description: Bad request
+        post:
+            operationId: createPet
+            summary: Create a pet
+            tags:
+                - Pets
+            requestBody:
+                required: true
+                content:
+                    application/json:
+                        schema:
+                            $ref: "#/components/schemas/NewPet"
+            responses:
+                "201":
+                    description: Pet created
+                    content:
+                        application/json:
+                            schema:
+                                $ref: "#/components/schemas/Pet"
+    /pets/{petId}:
+        parameters:
+            - name: petId
+              in: path
+              required: true
+              description: The id of the pet
+              schema:
+                  type: string
+        get:
+            operationId: getPet
+            summary: Get a pet by ID
+            tags:
+                - Pets
+            responses:
+                "200":
+                    description: A pet
+                    content:
+                        application/json:
+                            schema:
+                                $ref: "#/components/schemas/Pet"
+                "404":
+                    description: Not found
+    /pets/{petId}/vaccinations:
+        parameters:
+            - name: petId
+              in: path
+              required: true
+              description: The id of the pet
+              schema:
+                  type: string
+        get:
+            operationId: listPetVaccinations
+            summary: List vaccinations for a pet
+            tags:
+                - Pets
+            responses:
+                "200":
+                    description: A list of vaccinations
+
+components:
+    schemas:
+        Pet:
+            type: object
+            required:
+                - id
+                - name
+                - tag
+            description: A pet in the store
+            properties:
+                id:
+                    type: integer
+                    description: Unique identifier
+                name:
+                    type: string
+                    description: The pet's name
+                tag:
+                    type: string
+                    description: Required tag
+                breed:
+                    type: string
+                    description: The breed of the pet
+
+        NewPet:
+            type: object
+            required:
+                - name
+            properties:
+                name:
+                    type: string
+                tag:
+                    type: string
+
+        Vaccination:
+            type: object
+            description: A vaccination record
+            properties:
+                id:
+                    type: integer
+                name:
+                    type: string
+                date:
+                    type: string
