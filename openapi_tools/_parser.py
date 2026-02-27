@@ -5,18 +5,20 @@ import typing
 from enum import StrEnum
 
 import httpx
-import openapi_pydantic
+import openapi_pydantic.v3.v3_0 as _v30
+import openapi_pydantic.v3.v3_1 as _v31
 import yaml
+from openapi_pydantic import parse_obj
 
-OpenAPI = openapi_pydantic.v3.v3_1.OpenAPI
-Operation = openapi_pydantic.v3.v3_1.Operation
-Schema = openapi_pydantic.v3.v3_1.Schema
-Parameter = openapi_pydantic.v3.v3_1.Parameter
-Reference = openapi_pydantic.v3.v3_1.Reference
-RequestBody = openapi_pydantic.v3.v3_1.RequestBody
-Responses = openapi_pydantic.v3.v3_1.Responses
-Response = openapi_pydantic.v3.v3_1.Response
-Info = openapi_pydantic.v3.v3_1.Info
+OpenAPI = _v30.OpenAPI | _v31.OpenAPI
+Operation = _v30.Operation | _v31.Operation
+Schema = _v30.Schema | _v31.Schema
+Parameter = _v30.Parameter | _v31.Parameter
+Reference = _v30.Reference | _v31.Reference
+RequestBody = _v30.RequestBody | _v31.RequestBody
+Responses = _v30.Responses | _v31.Responses
+Response = _v30.Response | _v31.Response
+Info = _v30.Info | _v31.Info
 
 
 class Method(StrEnum):
@@ -31,7 +33,7 @@ class Method(StrEnum):
 
 
 type Endpoint = tuple[str, Method, Operation]
-type NamedSchema = tuple[str, Schema]
+type NamedSchema = tuple[str, Schema | Reference]
 
 
 def _load_from_url(url: str) -> dict[str, typing.Any]:
@@ -52,6 +54,14 @@ def _load_from_file(path: str) -> dict[str, typing.Any]:
     return json.loads(content)
 
 
+def _param_key(
+    p: _v30.Parameter | _v31.Parameter | _v30.Reference | _v31.Reference,
+) -> str:
+    if isinstance(p, (_v30.Parameter, _v31.Parameter)):
+        return p.name
+    return p.ref
+
+
 class OpenAPIParser:
     def __init__(self, openapi: OpenAPI) -> None:
         self.openapi = openapi
@@ -65,7 +75,7 @@ class OpenAPIParser:
             raw = _load_from_url(source)
         else:
             raw = _load_from_file(source)
-        spec = typing.cast(OpenAPI, openapi_pydantic.parse_obj(raw))
+        spec = parse_obj(raw)
         return cls(spec)
 
     @property
@@ -95,14 +105,12 @@ class OpenAPIParser:
                     continue
                 if path_level_params:
                     op_param_names = {
-                        (p.name if isinstance(p, Parameter) else p.ref)
-                        for p in (operation.parameters or [])
+                        _param_key(p) for p in (operation.parameters or [])
                     }
                     inherited = [
                         p
                         for p in path_level_params
-                        if (p.name if isinstance(p, Parameter) else p.ref)
-                        not in op_param_names
+                        if _param_key(p) not in op_param_names
                     ]
                     if inherited:
                         merged_params = list(inherited) + list(

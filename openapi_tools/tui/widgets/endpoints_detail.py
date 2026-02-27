@@ -1,5 +1,7 @@
-from typing import Protocol, runtime_checkable
+from typing import Protocol, cast, runtime_checkable
 
+import openapi_pydantic.v3.v3_0 as _v30
+import openapi_pydantic.v3.v3_1 as _v31
 from textual.app import ComposeResult
 from textual.widget import Widget
 from textual.widgets import Markdown, Static, TabbedContent, TabPane
@@ -11,12 +13,13 @@ from ..._parser import (
     Method,
     OpenAPIParser,
     Parameter,
-    Reference,
     RequestBody,
     Response,
     Responses,
     Schema,
 )
+
+_REFERENCE_TYPES = (_v30.Reference, _v31.Reference)
 
 
 @runtime_checkable
@@ -29,10 +32,10 @@ def _method_markup_title(method: Method) -> str:
     return f"[bold {color}]{method.upper()}[/]"
 
 
-def _schema_summary_md(schema: Schema | Reference | None) -> str:
+def _schema_summary_md(schema: Schema | _v30.Reference | _v31.Reference | None) -> str:
     if schema is None:
         return "any"
-    if isinstance(schema, Reference):
+    if isinstance(schema, _REFERENCE_TYPES):
         name = schema.ref.split("/")[-1]
         return f"[{name}](schema:{name})"
 
@@ -79,13 +82,13 @@ def _render_info_md(endpoint: Endpoint) -> str:
 
 def _render_parameters_md(
     openapi: OpenAPIParser,
-    parameters: list[Parameter | Reference] | None,
+    parameters: list[Parameter | _v30.Reference | _v31.Reference] | None,
     location: str,
 ) -> str:
     matching_parameters: list[Parameter] = []
     for parameter in parameters or []:
         resolved_parameter: Parameter
-        if isinstance(parameter, Reference):
+        if isinstance(parameter, _REFERENCE_TYPES):
             resolved_parameter = openapi.resolve_reference(parameter)
         else:
             resolved_parameter = parameter
@@ -117,7 +120,7 @@ def _render_responses_md(openapi: OpenAPIParser, responses: Responses | None) ->
     ]
     for code, response in responses.items():
         resolved_response: Response
-        if isinstance(response, Reference):
+        if isinstance(response, _REFERENCE_TYPES):
             resolved_response = openapi.resolve_reference(response)
         else:
             resolved_response = response
@@ -140,13 +143,14 @@ def _render_responses_md(openapi: OpenAPIParser, responses: Responses | None) ->
 
 
 def _render_request_body_md(
-    openapi: OpenAPIParser, request_body: RequestBody | Reference | None
+    openapi: OpenAPIParser,
+    request_body: RequestBody | _v30.Reference | _v31.Reference | None,
 ) -> str:
     if request_body is None:
         return "*No request body*"
 
     resolved_request_body: RequestBody
-    if isinstance(request_body, Reference):
+    if isinstance(request_body, _REFERENCE_TYPES):
         resolved_request_body = openapi.resolve_reference(request_body)
     else:
         resolved_request_body = request_body
@@ -254,14 +258,18 @@ class EndpointDetail(Widget):
         tabs.add_class("-has-endpoint")
 
         self.query_one("#tab-info-content", Markdown).update(_render_info_md(endpoint))
+        parameters = cast(
+            list[Parameter | _v30.Reference | _v31.Reference] | None,
+            operation.parameters,
+        )
         self.query_one("#tab-path-content", Markdown).update(
-            _render_parameters_md(openapi, operation.parameters, "path")
+            _render_parameters_md(openapi, parameters, "path")
         )
         self.query_one("#tab-query-content", Markdown).update(
-            _render_parameters_md(openapi, operation.parameters, "query")
+            _render_parameters_md(openapi, parameters, "query")
         )
         self.query_one("#tab-headers-content", Markdown).update(
-            _render_parameters_md(openapi, operation.parameters, "header")
+            _render_parameters_md(openapi, parameters, "header")
         )
         self.query_one("#tab-body-content", Markdown).update(
             _render_request_body_md(openapi, operation.requestBody)

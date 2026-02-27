@@ -2,18 +2,19 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
+from typing import Any, Protocol, runtime_checkable
 
+import openapi_pydantic.v3.v3_0 as _v30
+import openapi_pydantic.v3.v3_1 as _v31
 from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.message import Message
 from textual.widget import Widget
 from textual.widgets import ListItem, ListView, Markdown, Static
 
-from ..._parser import NamedSchema, OpenAPIParser, Reference, Schema
+from ..._parser import NamedSchema, OpenAPIParser, Schema
 
-if TYPE_CHECKING:
-    pass
+_REFERENCE_TYPES = (_v30.Reference, _v31.Reference)
 
 
 @runtime_checkable
@@ -21,7 +22,7 @@ class _SchemaLinkRouter(Protocol):
     def action_view_schema(self, name: str) -> None: ...
 
 
-def _schema_type_markup(schema: Schema) -> str:
+def _schema_type_markup(schema: _v30.Schema | _v31.Schema) -> str:
     if schema.allOf:
         return "[dim]allOf[/dim]"
     if schema.oneOf:
@@ -37,8 +38,11 @@ def _schema_type_markup(schema: Schema) -> str:
     return f"[dim]{type_str}[/dim]"
 
 
-def _prop_type_str(openapi: OpenAPIParser, prop_schema: Reference | Schema) -> str:
-    if isinstance(prop_schema, Reference):
+def _prop_type_str(
+    openapi: OpenAPIParser,
+    prop_schema: _v30.Reference | _v31.Reference | _v30.Schema | _v31.Schema,
+) -> str:
+    if isinstance(prop_schema, _REFERENCE_TYPES):
         ref_name = prop_schema.ref.split("/")[-1]
         return f"[{ref_name}](schema:{ref_name})"
 
@@ -59,7 +63,7 @@ def _prop_type_str(openapi: OpenAPIParser, prop_schema: Reference | Schema) -> s
         items = prop_schema.items
         if items is None:
             return "array"
-        if isinstance(items, Reference):
+        if isinstance(items, _REFERENCE_TYPES):
             item_name = items.ref.split("/")[-1]
             return f"array of [{item_name}](schema:{item_name})"
         item_type = items.type
@@ -105,7 +109,9 @@ def _prop_constraints(schema: Schema) -> str:
     return ", ".join(parts)
 
 
-def _schema_to_markdown(openapi: OpenAPIParser, schema: Schema) -> str:
+def _schema_to_markdown(
+    openapi: OpenAPIParser, schema: _v30.Schema | _v31.Schema
+) -> str:
     """Render a Schema as Markdown content."""
     lines: list[str] = []
 
@@ -126,7 +132,7 @@ def _schema_to_markdown(openapi: OpenAPIParser, schema: Schema) -> str:
             type_str = _prop_type_str(openapi, prop_schema)
 
             resolved_schema: Schema
-            if isinstance(prop_schema, Reference):
+            if isinstance(prop_schema, _REFERENCE_TYPES):
                 resolved_schema = openapi.resolve_reference(prop_schema)
             else:
                 resolved_schema = prop_schema
@@ -153,7 +159,7 @@ def _schema_to_markdown(openapi: OpenAPIParser, schema: Schema) -> str:
         lines.append(f"### {combiner_name}")
         lines.append("")
         for sub in combiner_list:
-            if isinstance(sub, Reference):
+            if isinstance(sub, _REFERENCE_TYPES):
                 ref_name = sub.ref.split("/")[-1]
                 lines.append(f"- [{ref_name}](schema:{ref_name})")
             else:
@@ -196,7 +202,11 @@ class SchemaItem(ListItem):
 
     def compose(self) -> ComposeResult:
         name, schema = self.schema
-        type_markup = _schema_type_markup(schema)
+        type_markup = (
+            _schema_type_markup(schema)
+            if isinstance(schema, (_v30.Schema, _v31.Schema))
+            else ""
+        )
         yield Static(
             f"[bold]{name}[/bold]  {type_markup}",
             markup=True,
@@ -311,7 +321,11 @@ class SchemaDetail(Widget):
 
         self.query_one("#schema-placeholder").display = False
 
-        type_markup = _schema_type_markup(schema)
+        type_markup = (
+            _schema_type_markup(schema)
+            if isinstance(schema, (_v30.Schema, _v31.Schema))
+            else ""
+        )
         self.border_title = f"[bold]{name}[/bold] {type_markup}"
         if self._history:
             trail = " › ".join(s[0] for s in self._history) + f" › {name}"
@@ -323,7 +337,8 @@ class SchemaDetail(Widget):
 
         md = self.query_one("#schema-markdown", Markdown)
         md.display = True
-        md.update(_schema_to_markdown(self.openapi, schema))
+        if isinstance(schema, (_v30.Schema, _v31.Schema)):
+            md.update(_schema_to_markdown(self.openapi, schema))
 
 
 class SchemasList(Widget):
