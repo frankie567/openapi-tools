@@ -148,17 +148,17 @@ def test_to_markdown_contains_sections(diff: APIDiff) -> None:
 
 def test_to_markdown_added_icon(diff: APIDiff) -> None:
     output = to_markdown(diff)
-    assert "✅" in output
+    assert "🔼" in output
 
 
 def test_to_markdown_removed_icon(diff: APIDiff) -> None:
     output = to_markdown(diff)
-    assert "❌" in output
+    assert "🔽" in output
 
 
 def test_to_markdown_modified_icon(diff: APIDiff) -> None:
     output = to_markdown(diff)
-    assert "⚠️" in output
+    assert "🔀" in output
 
 
 def test_to_markdown_no_changes() -> None:

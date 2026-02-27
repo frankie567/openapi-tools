@@ -491,9 +491,9 @@ def to_markdown(diff: APIDiff) -> str:
     lines: list[str] = ["# API Diff", ""]
 
     _ICONS = {
-        ChangeType.ADDED: "✅",
-        ChangeType.REMOVED: "❌",
-        ChangeType.MODIFIED: "⚠️",
+        ChangeType.ADDED: "🔼",
+        ChangeType.REMOVED: "🔽",
+        ChangeType.MODIFIED: "🔀",
     }
 
     if diff.operation_changes:
