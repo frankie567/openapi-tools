@@ -1,11 +1,13 @@
 """Generate SVG screenshots of the OpenAPI TUI for documentation purposes."""
 
 import asyncio
+import re
 import sys
 from pathlib import Path
 
 PETSTORE_URL = "https://petstore3.swagger.io/api/v3/openapi.json"
 OUTPUT_DIR = Path(__file__).parent.parent / "docs" / "images"
+DISPLAY_WIDTH = 800
 
 
 async def generate() -> None:
@@ -64,14 +66,29 @@ async def generate() -> None:
         await pilot.app.action_quit()
 
     app = OpenAPITUIApp(parser, source=PETSTORE_URL)
-    await app.run_async(headless=True, size=(220, 50), auto_pilot=auto_pilot)
+    await app.run_async(headless=True, size=(160, 58), auto_pilot=auto_pilot)
 
     for name, svg in screenshots.items():
+        svg = _set_display_width(svg, DISPLAY_WIDTH)
         path = OUTPUT_DIR / f"{name}.svg"
         path.write_text(svg, encoding="utf-8")
         print(f"Saved {path}")
 
     print("Done.")
+
+
+def _set_display_width(svg: str, width: int) -> str:
+    """Inject a width attribute so browsers render the SVG at a fixed pixel size."""
+    return re.sub(
+        r'(<svg\b[^>]*?)(viewBox="0 0 ([\d.]+) ([\d.]+)")',
+        lambda m: (
+            f'{m.group(1)}width="{width}" '
+            f'height="{round(float(m.group(4)) * width / float(m.group(3)))}" '
+            f"{m.group(2)}"
+        ),
+        svg,
+        count=1,
+    )
 
 
 if __name__ == "__main__":
