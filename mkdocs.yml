@@ -1,0 +1,64 @@
+site_name: OpenAPI Tools
+site_description: Python tools to work with OpenAPI schemas
+
+repo_url: https://github.com/frankie567/openapi-tools
+repo_name: frankie567/openapi-tools
+
+theme:
+    name: material
+    icon:
+        logo: material/library
+    palette:
+        # Palette toggle for automatic mode
+        - media: "(prefers-color-scheme)"
+          toggle:
+            icon: material/brightness-auto
+            name: Switch to light mode
+
+        # Palette toggle for light mode
+        - media: "(prefers-color-scheme: light)"
+          scheme: default
+          primary: red
+          accent: red
+          toggle:
+            icon: material/brightness-7
+            name: Switch to dark mode
+
+        # Palette toggle for dark mode
+        - media: "(prefers-color-scheme: dark)"
+          scheme: slate
+          primary: red
+          accent: red
+          toggle:
+            icon: material/brightness-4
+            name: Switch to light mode
+
+markdown_extensions:
+    - toc:
+        permalink: true
+    - pymdownx.highlight:
+        anchor_linenums: true
+    - pymdownx.tasklist:
+        custom_checkbox: true
+    - pymdownx.inlinehilite
+    - pymdownx.snippets
+    - pymdownx.superfences
+
+plugins:
+    - search
+    - mkdocstrings:
+        handlers:
+            python:
+                inventories:
+                    - https://docs.python.org/3.14/objects.inv
+                options:
+                    docstring_style: google
+
+watch:
+    - docs
+    - openapi_tools
+
+nav:
+    - About: index.md
+    - Reference:
+        - openapi_tools: reference/openapi_tools.md
