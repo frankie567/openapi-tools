@@ -1,8 +1,8 @@
 openapi: "3.1.0"
 info:
     title: Pet Store
-    version: "1.0.0"
-    description: A sample pet store API
+    version: "2.0.0"
+    description: A sample pet store API (v2)
 
 paths:
     /pets:
@@ -15,7 +15,7 @@ paths:
             parameters:
                 - name: limit
                   in: query
-                  required: false
+                  required: true
                   description: Maximum number of items to return
                   schema:
                       type: integer
@@ -23,6 +23,12 @@ paths:
                   in: header
                   required: true
                   description: API key for auth
+                  schema:
+                      type: string
+                - name: filter
+                  in: query
+                  required: false
+                  description: Filter pets by name
                   schema:
                       type: string
             responses:
@@ -34,15 +40,15 @@ paths:
                                 type: array
                                 items:
                                     $ref: "#/components/schemas/Pet"
-                "400":
-                    description: Bad request
+                "429":
+                    description: Too many requests
         post:
             operationId: createPet
             summary: Create a pet
             tags:
                 - Pets
             requestBody:
-                required: true
+                required: false
                 content:
                     application/json:
                         schema:
@@ -69,38 +75,29 @@ paths:
                 - Pets
             responses:
                 "200":
-                    description: A pet
+                    description: The requested pet
                     content:
                         application/json:
                             schema:
                                 $ref: "#/components/schemas/Pet"
                 "404":
                     description: Not found
-        delete:
-            operationId: deletePet
-            summary: Delete a pet
+    /pets/{petId}/vaccinations:
+        parameters:
+            - name: petId
+              in: path
+              required: true
+              description: The id of the pet
+              schema:
+                  type: string
+        get:
+            operationId: listPetVaccinations
+            summary: List vaccinations for a pet
             tags:
                 - Pets
-            deprecated: true
-            responses:
-                "204":
-                    description: Pet deleted
-    /orders:
-        get:
-            operationId: listOrders
-            summary: List orders
-            tags:
-                - Orders
-            parameters:
-                - name: status
-                  in: query
-                  required: false
-                  schema:
-                      type: string
-                      enum: [pending, completed, cancelled]
             responses:
                 "200":
-                    description: A list of orders
+                    description: A list of vaccinations
 
 components:
     schemas:
@@ -109,6 +106,7 @@ components:
             required:
                 - id
                 - name
+                - tag
             description: A pet in the store
             properties:
                 id:
@@ -119,7 +117,10 @@ components:
                     description: The pet's name
                 tag:
                     type: string
-                    description: Optional tag
+                    description: Required tag
+                breed:
+                    type: string
+                    description: The breed of the pet
 
         NewPet:
             type: object
@@ -132,16 +133,15 @@ components:
                     type: string
                 size:
                     type: string
-                    enum: [small, medium, large]
+                    enum: [small, medium, large, extra_large]
 
-        Order:
+        Vaccination:
             type: object
-            description: An order for a pet
+            description: A vaccination record
             properties:
                 id:
                     type: integer
-                petId:
-                    type: integer
-                status:
+                name:
                     type: string
-                    enum: [pending, completed, cancelled]
+                date:
+                    type: string
