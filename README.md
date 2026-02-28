@@ -56,6 +56,74 @@ uvx openapi-tools view ./my-api.yaml
 
 ![Schema detail](docs/images/tui-schema-detail.svg)
 
+## OpenAPI Diff
+
+Compare two OpenAPI schemas and output the differences.
+
+```bash
+uvx openapi-tools diff ./v1.yaml ./v2.yaml
+```
+
+The diff command supports both JSON and Markdown output formats:
+
+```bash
+# Markdown output (default)
+uvx openapi-tools diff ./v1.yaml ./v2.yaml
+
+# JSON output
+uvx openapi-tools diff ./v1.yaml ./v2.yaml --format json
+```
+
+### Features
+
+- **Endpoint comparison**: Detects added, removed, and modified endpoints
+- **Schema changes**: Identifies schema additions, removals, and modifications
+- **Detailed output**: Shows exactly what changed in each endpoint or schema
+- **Multiple formats**: Choose between human-readable Markdown or machine-readable JSON output
+- **URL and file support**: Compare schemas from local files or remote URLs
+
+### Example Output
+
+The diff command outputs a structured comparison showing:
+
+```markdown
+# OpenAPI Schema Diff
+
+## Endpoints
+
+### Added
+
+- POST /new-endpoint
+
+### Removed
+
+- GET /old-endpoint
+
+### Modified
+
+- GET /updated-endpoint
+    - Description changed
+    - Added new query parameter
+
+## Schemas
+
+### Added
+
+- NewSchema
+
+### Removed
+
+- OldSchema
+
+### Modified
+
+- UpdatedSchema
+    - Added new property
+    - Changed type constraint
+```
+
+This makes it easy to review API changes between versions and generate changelogs.
+
 ---
 
 ## Development
