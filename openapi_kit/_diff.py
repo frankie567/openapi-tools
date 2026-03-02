@@ -570,9 +570,13 @@ def to_json(diff: APIDiff) -> str:
     return diff.model_dump_json(indent=2)
 
 
-def to_markdown(diff: APIDiff) -> str:
+def _get_markdown_heading(level: int) -> str:
+    return "#" * max(1, min(level, 6))
+
+
+def to_markdown(diff: APIDiff, *, heading_level: int = 1) -> str:
     """Render an APIDiff as a human-readable Markdown string."""
-    lines: list[str] = ["# API Diff", ""]
+    lines: list[str] = []
 
     _ICONS = {
         ChangeType.ADDED: "🔼",
@@ -581,7 +585,7 @@ def to_markdown(diff: APIDiff) -> str:
     }
 
     if diff.operation_changes:
-        lines.append("## Operations")
+        lines.append(f"{_get_markdown_heading(heading_level)} Operations")
         lines.append("")
         for change in sorted(diff.operation_changes, key=lambda c: (c.path, c.method)):
             icon = _ICONS[change.change_type]
@@ -620,7 +624,7 @@ def to_markdown(diff: APIDiff) -> str:
         lines.append("")
 
     if diff.schema_changes:
-        lines.append("## Schemas")
+        lines.append(f"{_get_markdown_heading(heading_level)} Schemas")
         lines.append("")
         for schema_change in sorted(diff.schema_changes, key=lambda c: c.name):
             icon = _ICONS[schema_change.change_type]

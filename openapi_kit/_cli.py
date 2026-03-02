@@ -60,11 +60,25 @@ def view(schema: str, base: str | None) -> None:
     show_default=True,
     help="Output format.",
 )
-def diff(base_schema: str, head_schema: str, output_format: str) -> None:
+@click.option(
+    "--markdown-heading-level",
+    type=click.IntRange(1, 6),
+    default=1,
+    show_default=True,
+    help="Heading level for markdown output (1-6).",
+)
+def diff(
+    base_schema: str, head_schema: str, output_format: str, markdown_heading_level: int
+) -> None:
     """Compare two OpenAPI schemas and output the differences.
 
     BASE and HEAD can each be a local file path (JSON or YAML) or a URL.
     """
+    if output_format != "markdown" and markdown_heading_level != 1:
+        raise click.UsageError(  # noqa: TRY003
+            "--markdown-heading-level is only valid with --format=markdown"
+        )
+
     try:
         base_parser = OpenAPIParser.from_source(base_schema)
     except FileNotFoundError:
@@ -88,4 +102,4 @@ def diff(base_schema: str, head_schema: str, output_format: str) -> None:
     if output_format == "json":
         click.echo(to_json(result))
     else:
-        click.echo(to_markdown(result))
+        click.echo(to_markdown(result, heading_level=markdown_heading_level))
