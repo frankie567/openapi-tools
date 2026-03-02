@@ -119,7 +119,7 @@ class DiffService:
         icons = {
             ChangeType.ADDED: "[green]+[/green]",
             ChangeType.REMOVED: "[red]-[/red]",
-            ChangeType.MODIFIED: "[orange]~[/orange]",
+            ChangeType.MODIFIED: "[dark_orange]~[/dark_orange]",
         }
         return icons.get(change_type, "")
 
@@ -131,6 +131,6 @@ class DiffService:
         colors = {
             ChangeType.ADDED: "green",
             ChangeType.REMOVED: "red",
-            ChangeType.MODIFIED: "orange",
+            ChangeType.MODIFIED: "dark_orange",
         }
         return colors.get(change_type, "")

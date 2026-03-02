@@ -10,7 +10,7 @@ from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.message import Message
 from textual.widget import Widget
-from textual.widgets import ListItem, ListView, Markdown, Static
+from textual.widgets import Markdown, Static, Tree
 
 from ..._diff import ChangeType, SchemaPropertyChange
 from ..._parser import NamedSchema, OpenAPIParser, Schema
@@ -268,48 +268,6 @@ def _schema_to_markdown(
     return "\n".join(lines)
 
 
-class SchemaItem(ListItem):
-    """A list item representing a single schema."""
-
-    DEFAULT_CSS = """
-    SchemaItem {
-        padding: 0 1;
-    }
-    SchemaItem:hover {
-        background: $accent 15%;
-    }
-    SchemaItem.--highlight {
-        background: $accent 25%;
-    }
-    """
-
-    def __init__(self, schema: NamedSchema, diff_service: DiffService) -> None:
-        super().__init__()
-        self.schema = schema
-        self.diff_service = diff_service
-
-    def compose(self) -> ComposeResult:
-        name, schema = self.schema
-        type_markup = (
-            _schema_type_markup(schema)
-            if isinstance(schema, (_v30.Schema, _v31.Schema))
-            else ""
-        )
-
-        # Add diff indicator if available
-        diff_indicator = ""
-        if self.diff_service.is_diff_available():
-            change_type = self.diff_service.get_schema_change_type(name)
-            if change_type:
-                icon = self.diff_service.get_change_icon(change_type)
-                diff_indicator = f"  {icon}"
-
-        yield Static(
-            f"[bold]{name}[/bold]  {type_markup}{diff_indicator}",
-            markup=True,
-        )
-
-
 class SchemaDetail(Widget):
     """Shows the details of a selected schema, with navigation history."""
 
@@ -455,6 +413,23 @@ class SchemaDetail(Widget):
             )
 
 
+def _get_schema_label(schema: NamedSchema, diff_service: DiffService) -> str:
+    """Get the Tree label markup for a schema entry."""
+    name, s = schema
+    type_markup = (
+        _schema_type_markup(s) if isinstance(s, (_v30.Schema, _v31.Schema)) else ""
+    )
+
+    diff_indicator = ""
+    if diff_service.is_diff_available():
+        change_type = diff_service.get_schema_change_type(name)
+        if change_type:
+            icon = diff_service.get_change_icon(change_type)
+            diff_indicator = f"{icon} "
+
+    return f"{diff_indicator}[bold]{name}[/bold]  {type_markup}"
+
+
 class SchemasList(Widget):
     """Widget showing all schemas from the OpenAPI spec."""
 
@@ -465,11 +440,11 @@ class SchemasList(Widget):
         border: round $primary-darken-2;
         margin: 0 1 0 0;
     }
-    SchemasList > ListView {
+    SchemasList > Tree {
         height: 1fr;
         border: none;
         background: $surface;
-        padding: 0;
+        padding: 0 0 0 1;
     }
     """
 
@@ -486,36 +461,43 @@ class SchemasList(Widget):
         self.diff_service = diff_service
 
     def compose(self) -> ComposeResult:
-        yield ListView(id="schemas-list")
+        yield Tree("Schemas", id="schemas-tree")
 
     def on_mount(self) -> None:
         self.border_title = "Schemas"
-        self._rebuild_list()
+        tree = self.query_one("#schemas-tree", Tree)
+        tree.show_root = False
+        tree.show_guides = False
+        self._rebuild_tree()
 
     def reload(self, openapi: OpenAPIParser) -> None:
         self.openapi = openapi
-        self._rebuild_list()
+        self._rebuild_tree()
 
-    def _rebuild_list(self) -> None:
-        list_view = self.query_one("#schemas-list", ListView)
-        list_view.clear()
-        for name, schema in self.openapi.schemas:
+    def _rebuild_tree(self) -> None:
+        tree: Tree[NamedSchema] = self.query_one("#schemas-tree", Tree)
+        tree.root.remove_children()
+        for named_schema in self.openapi.schemas:
+            name, _ = named_schema
             if not self.diff_service.should_show_schema(name):
                 continue
-            list_view.append(SchemaItem((name, schema), self.diff_service))
+            tree.root.add_leaf(
+                _get_schema_label(named_schema, self.diff_service),
+                data=named_schema,
+            )
 
-    def on_list_view_selected(self, event: ListView.Selected) -> None:
-        if isinstance(event.item, SchemaItem):
-            self.post_message(self.SchemaSelected(event.item.schema))
+    def on_tree_node_selected(self, event: Tree.NodeSelected[NamedSchema]) -> None:
+        if event.node.data is not None:
+            self.post_message(self.SchemaSelected(event.node.data))
 
     def select_schema(self, name: str) -> None:
-        """Move the list cursor to the schema with the given name (if visible)."""
-        list_view = self.query_one("#schemas-list", ListView)
-        for idx, item in enumerate(list_view.children):
-            if isinstance(item, SchemaItem) and item.schema[0] == name:
-                list_view.index = idx
+        """Move the tree cursor to the schema with the given name (if visible)."""
+        tree: Tree[NamedSchema] = self.query_one("#schemas-tree", Tree)
+        for node in tree.root.children:
+            if node.data is not None and node.data[0] == name:
+                tree.move_cursor(node)
                 break
 
     def apply_diff_filtering(self) -> None:
         """Apply diff filtering to the schemas list."""
-        self._rebuild_list()
+        self._rebuild_tree()
