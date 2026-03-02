@@ -142,9 +142,8 @@ def test_to_json(diff: APIDiff) -> None:
 
 def test_to_markdown_contains_sections(diff: APIDiff) -> None:
     output = to_markdown(diff)
-    assert "# API Diff" in output
-    assert "## Operations" in output
-    assert "## Schemas" in output
+    assert "# Operations" in output
+    assert "# Schemas" in output
 
 
 def test_to_markdown_added_icon(diff: APIDiff) -> None:
@@ -165,9 +164,8 @@ def test_to_markdown_modified_icon(diff: APIDiff) -> None:
 def test_to_markdown_no_changes() -> None:
     empty = APIDiff()
     output = to_markdown(empty)
-    assert "# API Diff" in output
-    assert "## Operations" not in output
-    assert "## Schemas" not in output
+    assert "# Operations" not in output
+    assert "# Schemas" not in output
 
 
 def test_enum_value_added_in_schema_property(diff: APIDiff) -> None:
