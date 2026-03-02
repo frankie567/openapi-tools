@@ -1,6 +1,5 @@
 import os
 
-from textual import events
 from textual.app import App
 from textual.binding import Binding
 
@@ -42,16 +41,6 @@ class OpenAPITUIApp(App[None]):
         info = self.openapi.info
         self.sub_title = self._build_sub_title(info.title, info.version)
         self.switch_mode("endpoints")
-
-    def on_key(self, event: events.Key) -> None:
-        """Handle key events to update subtitle with diff info."""
-        if self.diff_service.is_diff_available():
-            diff_info = self.diff_service.get_diff_summary()
-            if diff_info:
-                info = self.openapi.info
-                base_title = self._build_sub_title(info.title, info.version)
-                mode = " (diff-only)" if self.diff_service.is_diff_only_mode() else ""
-                self.sub_title = f"{base_title} | {diff_info}{mode}"
 
     def _build_sub_title(self, title: str, version: str) -> str:
         source_label = ""

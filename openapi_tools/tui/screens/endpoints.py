@@ -84,3 +84,7 @@ class EndpointsScreen(Screen[None]):
     def apply_diff_filtering(self) -> None:
         """Apply diff filtering to the endpoints list."""
         self.query_one(EndpointsList).apply_diff_filtering()
+        self.query_one(EndpointDetail).rerender(self.openapi)
+        panel = self.query_one("#endpoint-schema-panel", SchemaDetail)
+        if panel.display:
+            panel.rerender()

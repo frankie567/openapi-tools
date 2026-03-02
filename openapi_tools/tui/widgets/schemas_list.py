@@ -129,29 +129,49 @@ def _schema_to_markdown(
     properties = schema.properties or {}
     required_fields = set(schema.required or [])
 
-    if properties:
+    # Collect removed properties from the base schema
+    removed_properties: dict[
+        str, _v30.Schema | _v31.Schema | _v30.Reference | _v31.Reference
+    ] = {}
+    removed_required_fields: set[str] = set()
+    if diff_service.base_parser and diff_service.is_diff_available():
+        base_schema_map = dict(diff_service.base_parser.schemas)
+        if name in base_schema_map:
+            base_schema_entry = diff_service.base_parser.get_referenced(
+                base_schema_map[name]
+            )
+            if isinstance(base_schema_entry, (_v30.Schema, _v31.Schema)):
+                base_props = base_schema_entry.properties or {}
+                removed_required_fields = set(base_schema_entry.required or [])
+                for prop_name in set(base_props) - set(properties):
+                    prop_change = diff_service.get_property_change(name, prop_name)
+                    if (
+                        isinstance(prop_change, SchemaPropertyChange)
+                        and prop_change.change_type == ChangeType.REMOVED
+                    ):
+                        removed_properties[prop_name] = base_props[prop_name]
+
+    if properties or removed_properties:
         lines.append("### Properties")
         lines.append("")
         lines.append("| Property | Req | Type | Constraints | Description |")
         lines.append("| --- | --- | --- | --- | --- |")
         for prop_name, prop_schema in properties.items():
             prop_change = diff_service.get_property_change(name, prop_name)
+            if diff_service.is_diff_only_mode() and prop_change is None:
+                continue
 
             # Apply diff highlighting
-            name_color = ""
+            diff_prefix = ""
             if isinstance(prop_change, SchemaPropertyChange):
                 if prop_change.change_type == ChangeType.ADDED:
-                    name_color = "green"
+                    diff_prefix = "`+` "
                 elif prop_change.change_type == ChangeType.REMOVED:
-                    name_color = "red"
+                    diff_prefix = "`-` "
                 elif prop_change.change_type == ChangeType.MODIFIED:
-                    name_color = "orange"
+                    diff_prefix = "`~` "
 
-            name_markup = (
-                f"[{name_color}]{prop_name}[/{name_color}]"
-                if name_color
-                else f"**{prop_name}**"
-            )
+            name_markup = f"{diff_prefix}**{prop_name}**"
 
             req = "✱" if prop_name in required_fields else ""
             type_str = _prop_type_str(openapi, prop_schema)
@@ -186,13 +206,34 @@ def _schema_to_markdown(
                     elif fc.field == "enum":
                         change_details.append("enum values changed")
                 if change_details:
-                    change_indicator = (
-                        f"  ([orange]{', '.join(change_details)}[/orange])"
-                    )
+                    change_indicator = f"  *({', '.join(change_details)})*"
 
             lines.append(
                 f"| {name_markup} | {req} | {type_str} | {constraints} | {desc} {change_indicator}|"
             )
+        base_parser = diff_service.base_parser
+        for prop_name, prop_schema in removed_properties.items():
+            removed_resolved: Schema
+            if isinstance(prop_schema, _REFERENCE_TYPES):
+                assert base_parser is not None
+                removed_resolved = base_parser.resolve_reference(prop_schema)
+            else:
+                removed_resolved = prop_schema
+
+            req = "✱" if prop_name in removed_required_fields else ""
+            assert base_parser is not None
+            type_str = _prop_type_str(base_parser, prop_schema)
+            constraints = _prop_constraints(removed_resolved)
+            desc = (
+                (removed_resolved.description or "")
+                .replace("|", "\\|")
+                .replace("\n", " ")
+                .strip()
+            )
+            lines.append(
+                f"| `- ` **{prop_name}** | {req} | {type_str} | {constraints} | {desc} |"
+            )
+
         lines.append("")
 
     for combiner_name, combiner_list in [
@@ -343,6 +384,10 @@ class SchemaDetail(Widget):
     def reload(self, openapi: OpenAPIParser) -> None:
         self.openapi = openapi
         self.reset()
+
+    def rerender(self) -> None:
+        """Re-render the currently displayed schema, e.g. after a mode toggle."""
+        self._refresh_display()
 
     def reset(self) -> None:
         """Clear history and current schema (used when closing the panel)."""

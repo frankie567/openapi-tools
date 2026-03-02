@@ -99,13 +99,6 @@ def _render_parameters_md(
         if resolved_parameter.param_in.value == location:
             matching_parameters.append(resolved_parameter)
 
-    if not matching_parameters:
-        return f"*No {location} parameters*"
-    lines = [
-        "| Name | Req | Type | Description |",
-        "| --- | --- | --- | --- |",
-    ]
-
     # Get parameter changes if diff is available
     param_changes = {}
     if endpoint and diff_service.is_diff_available():
@@ -115,24 +108,50 @@ def _render_parameters_md(
                 if pc.location == location:
                     param_changes[pc.name] = pc
 
+    # Collect removed parameters from the base parser
+    removed_parameters: list[Parameter] = []
+    if diff_service.base_parser and endpoint:
+        path, method, _ = endpoint
+        base_ops = {(p, str(m)): op for p, m, op in diff_service.base_parser.endpoints}
+        base_op = base_ops.get((path, str(method)))
+        if base_op:
+            for bp in base_op.parameters or []:
+                resolved_bp: Parameter
+                if isinstance(bp, _REFERENCE_TYPES):
+                    resolved_bp = diff_service.base_parser.resolve_reference(bp)
+                else:
+                    resolved_bp = bp
+                if (
+                    resolved_bp.param_in.value == location
+                    and param_changes.get(resolved_bp.name) is not None
+                    and param_changes[resolved_bp.name].change_type
+                    == ChangeType.REMOVED
+                ):
+                    removed_parameters.append(resolved_bp)
+
+    if not matching_parameters and not removed_parameters:
+        return f"*No {location} parameters*"
+    lines = [
+        "| Name | Req | Type | Description |",
+        "| --- | --- | --- | --- |",
+    ]
+
     for parameter in matching_parameters:
         param_change = param_changes.get(parameter.name)
+        if diff_service.is_diff_only_mode() and param_change is None:
+            continue
 
         # Apply diff highlighting
-        name_color = ""
+        diff_prefix = ""
         if param_change:
             if param_change.change_type == ChangeType.ADDED:
-                name_color = "green"
+                diff_prefix = "`+` "
             elif param_change.change_type == ChangeType.REMOVED:
-                name_color = "red"
+                diff_prefix = "`-` "
             elif param_change.change_type == ChangeType.MODIFIED:
-                name_color = "orange"
+                diff_prefix = "`~` "
 
-        name_markup = (
-            f"[{name_color}]{parameter.name}[/{name_color}]"
-            if name_color
-            else f"`{parameter.name}`"
-        )
+        name_markup = f"{diff_prefix}`{parameter.name}`"
 
         req = "✱" if parameter.required else ""
         type_str = _schema_summary_md(parameter.param_schema)
@@ -152,11 +171,20 @@ def _render_parameters_md(
                 elif fc.field.startswith("schema."):
                     change_details.append(f"type: {fc.old_value} → {fc.new_value}")
             if change_details:
-                change_indicator = f"  ([orange]{', '.join(change_details)}[/orange])"
+                change_indicator = f"  *({', '.join(change_details)})*"
 
         lines.append(
             f"| {name_markup} | {req} | {type_str} | {desc}{change_indicator} |"
         )
+
+    for parameter in removed_parameters:
+        req = "✱" if parameter.required else ""
+        type_str = _schema_summary_md(parameter.param_schema)
+        desc = (
+            (parameter.description or "").replace("|", "\\|").replace("\n", " ").strip()
+        )
+        lines.append(f"| `- ` `{parameter.name}` | {req} | {type_str} | {desc} |")
+
     return "\n".join(lines)
 
 
@@ -181,7 +209,29 @@ def _render_responses_md(
             for rc in endpoint_changes.response_changes:
                 response_changes[rc.status_code] = rc
 
+    # Collect removed responses from the base parser
+    removed_responses: dict[str, Response] = {}
+    if diff_service.base_parser and endpoint:
+        path, method, _ = endpoint
+        base_ops = {(p, str(m)): op for p, m, op in diff_service.base_parser.endpoints}
+        base_op = base_ops.get((path, str(method)))
+        if base_op:
+            for code, resp in (base_op.responses or {}).items():
+                resp_change = response_changes.get(code)
+                if (
+                    resp_change is not None
+                    and resp_change.change_type == ChangeType.REMOVED
+                ):
+                    if isinstance(resp, _REFERENCE_TYPES):
+                        resolved = diff_service.base_parser.resolve_reference(resp)
+                        if isinstance(resolved, (_v30.Response, _v31.Response)):
+                            removed_responses[code] = resolved
+                    else:
+                        removed_responses[code] = resp
+
     for code, response in responses.items():
+        if diff_service.is_diff_only_mode() and code not in response_changes:
+            continue
         resolved_response: Response
         if isinstance(response, _REFERENCE_TYPES):
             resolved_response = openapi.resolve_reference(response)
@@ -189,19 +239,17 @@ def _render_responses_md(
             resolved_response = response
 
         # Apply diff highlighting
-        code_color = ""
+        diff_prefix = ""
         response_change = response_changes.get(code)
         if response_change:
             if response_change.change_type == ChangeType.ADDED:
-                code_color = "green"
+                diff_prefix = "`+` "
             elif response_change.change_type == ChangeType.REMOVED:
-                code_color = "red"
+                diff_prefix = "`-` "
             elif response_change.change_type == ChangeType.MODIFIED:
-                code_color = "orange"
+                diff_prefix = "`~` "
 
-        code_markup = (
-            f"[{code_color}]{code}[/{code_color}]" if code_color else f"**{code}**"
-        )
+        code_markup = f"{diff_prefix}**{code}**"
 
         desc = (
             (resolved_response.description or "")
@@ -225,7 +273,7 @@ def _render_responses_md(
                 elif fc.field.endswith(".schema"):
                     change_details.append("schema changed")
             if change_details:
-                change_indicator = f"  ([orange]{', '.join(change_details)}[/orange])"
+                change_indicator = f"  *({', '.join(change_details)})*"
 
         if not resolved_response.content:
             lines.append(f"| {code_markup} | {desc} | | {change_indicator}")
@@ -237,6 +285,23 @@ def _render_responses_md(
                 lines.append(
                     f"| {code_markup} | {desc} | `{mt}` | {schema_str} {change_indicator}"
                 )
+
+    for code, removed_response in sorted(removed_responses.items()):
+        desc = (
+            (removed_response.description or "")
+            .replace("|", "\\|")
+            .replace("\n", " ")
+            .strip()
+        )
+        if not removed_response.content:
+            lines.append(f"| `- ` **{code}** | {desc} | | |")
+        else:
+            for media_type, media_obj in removed_response.content.items():
+                schema = media_obj.media_type_schema
+                schema_str = _schema_summary_md(schema) if schema else ""
+                mt = media_type.replace("|", "\\|")
+                lines.append(f"| `- ` **{code}** | {desc} | `{mt}` | {schema_str} |")
+
     return "\n".join(lines)
 
 
@@ -266,7 +331,12 @@ def _render_request_body_md(
 
     # Add diff indicator
     if rb_change and diff_service is not None:
-        icon = diff_service.get_change_icon(rb_change.change_type)
+        _md_icons = {
+            ChangeType.ADDED: "`+`",
+            ChangeType.REMOVED: "`-`",
+            ChangeType.MODIFIED: "`~`",
+        }
+        icon = _md_icons.get(rb_change.change_type, "")
         lines.append(f"{icon} **Request Body**")
         lines.append("")
 
@@ -288,7 +358,7 @@ def _render_request_body_md(
             elif fc.field.startswith("content."):
                 change_details.append(f"content type: {fc.old_value} → {fc.new_value}")
         if change_details:
-            lines.append(f"[orange]Changes: {', '.join(change_details)}[/orange]")
+            lines.append(f"*Changes: {', '.join(change_details)}*")
             lines.append("")
 
     for media_type, media_obj in (resolved_request_body.content or {}).items():
@@ -335,6 +405,8 @@ class EndpointDetail(Widget):
     def __init__(self, diff_service: DiffService) -> None:
         super().__init__()
         self.diff_service = diff_service
+        self._openapi: OpenAPIParser | None = None
+        self._endpoint: Endpoint | None = None
 
     def on_mount(self) -> None:
         self.border_title = "Endpoint"
@@ -375,8 +447,15 @@ class EndpointDetail(Widget):
         tabs = self.query_one("#endpoint-tabs", TabbedContent)
         tabs.remove_class("-has-endpoint")
 
+    def rerender(self, openapi: OpenAPIParser) -> None:
+        """Re-render the currently displayed endpoint, e.g. after a mode toggle."""
+        if self._endpoint is not None:
+            self.show_endpoint(openapi, self._endpoint)
+
     def show_endpoint(self, openapi: OpenAPIParser, endpoint: Endpoint) -> None:
         """Update the panel to show details for the given endpoint."""
+        self._openapi = openapi
+        self._endpoint = endpoint
         path, method, operation = endpoint
 
         deprecated = (

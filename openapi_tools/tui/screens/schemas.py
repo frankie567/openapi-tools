@@ -53,3 +53,4 @@ class SchemasScreen(Screen[None]):
     def apply_diff_filtering(self) -> None:
         """Apply diff filtering to the schemas list."""
         self.query_one(SchemasList).apply_diff_filtering()
+        self.query_one("#schemas-panel", SchemaDetail).rerender()
