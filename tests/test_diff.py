@@ -5,6 +5,7 @@ import pytest
 from openapi_tools._diff import (
     APIDiff,
     ChangeType,
+    OperationChange,
     RequestBodyChange,
     ResponseChange,
     compare,
@@ -275,3 +276,111 @@ def test_to_markdown_includes_request_body_change(diff: APIDiff) -> None:
 def test_to_markdown_includes_response_change(diff: APIDiff) -> None:
     output = to_markdown(diff)
     assert "Response" in output
+
+
+def test_modified_schema_affects_operations_using_it(diff: APIDiff) -> None:
+    pet_schema_change = next(
+        c
+        for c in diff.schema_changes
+        if c.name == "Pet" and c.change_type == ChangeType.MODIFIED
+    )
+    assert pet_schema_change is not None
+
+    affected_ops = [
+        c for c in diff.operation_changes if "Pet" in c.affected_schema_changes
+    ]
+    affected_keys = {(c.path, c.method) for c in affected_ops}
+    assert ("/pets", "get") in affected_keys
+    assert ("/pets", "post") in affected_keys
+    assert ("/pets/{petId}", "get") in affected_keys
+
+
+def test_modified_schema_affects_request_body_operation(diff: APIDiff) -> None:
+    new_pet_schema_change = next(
+        c
+        for c in diff.schema_changes
+        if c.name == "NewPet" and c.change_type == ChangeType.MODIFIED
+    )
+    assert new_pet_schema_change is not None
+
+    affected_ops = [
+        c for c in diff.operation_changes if "NewPet" in c.affected_schema_changes
+    ]
+    affected_keys = {(c.path, c.method) for c in affected_ops}
+    assert ("/pets", "post") in affected_keys
+
+
+def test_removed_schema_affects_operations_using_it(diff: APIDiff) -> None:
+    order_schema_change = next(
+        c
+        for c in diff.schema_changes
+        if c.name == "Order" and c.change_type == ChangeType.REMOVED
+    )
+    assert order_schema_change is not None
+
+    affected_ops = [
+        c for c in diff.operation_changes if "Order" in c.affected_schema_changes
+    ]
+    assert len(affected_ops) == 0
+
+
+def test_affected_schema_changes_not_listed_for_added_schema(diff: APIDiff) -> None:
+    vaccination_schema_change = next(
+        c
+        for c in diff.schema_changes
+        if c.name == "Vaccination" and c.change_type == ChangeType.ADDED
+    )
+    assert vaccination_schema_change is not None
+
+    affected_ops = [
+        c for c in diff.operation_changes if "Vaccination" in c.affected_schema_changes
+    ]
+    assert len(affected_ops) == 0
+
+
+def test_operation_change_without_direct_diff_created_for_schema_impact(
+    diff: APIDiff,
+) -> None:
+    get_pet_id_change = next(
+        (
+            c
+            for c in diff.operation_changes
+            if c.path == "/pets/{petId}" and c.method == "get"
+        ),
+        None,
+    )
+    assert get_pet_id_change is not None
+    assert isinstance(get_pet_id_change, OperationChange)
+    assert "Pet" in get_pet_id_change.affected_schema_changes
+
+
+def test_operation_change_affected_schema_changes_is_empty_without_schema_impact() -> (
+    None
+):
+    op_change = OperationChange(path="/foo", method="get", change_type=ChangeType.ADDED)
+    assert op_change.affected_schema_changes == []
+
+
+def test_to_markdown_includes_affected_schema_warning(diff: APIDiff) -> None:
+    output = to_markdown(diff)
+    assert "Affected by schema change" in output
+    assert "`Pet`" in output
+
+
+def test_to_markdown_affected_schema_warning_under_correct_operation(
+    diff: APIDiff,
+) -> None:
+    output = to_markdown(diff)
+    lines = output.splitlines()
+
+    get_pets_line = next(
+        i
+        for i, line in enumerate(lines)
+        if "GET /pets`" in line or "`get /pets`" in line.lower()
+    )
+    warning_lines = [
+        line
+        for line in lines[get_pets_line : get_pets_line + 20]
+        if "Affected by schema change" in line and "`Pet`" in line
+    ]
+    assert len(warning_lines) >= 1

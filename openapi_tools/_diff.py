@@ -54,6 +54,7 @@ class OperationChange(BaseModel):
     parameter_changes: list[ParameterChange] = []
     request_body_change: RequestBodyChange | None = None
     response_changes: list[ResponseChange] = []
+    affected_schema_changes: list[str] = []
 
 
 class SchemaPropertyChange(BaseModel):
@@ -71,6 +72,64 @@ class SchemaChange(BaseModel):
 class APIDiff(BaseModel):
     operation_changes: list[OperationChange] = []
     schema_changes: list[SchemaChange] = []
+
+
+def _ref_to_name(ref: str) -> str:
+    """Extract the schema name from a $ref string like '#/components/schemas/Pet'."""
+    return ref.rsplit("/", 1)[-1]
+
+
+def _collect_refs_from_schema(
+    schema: _v30.Schema | _v31.Schema | _v30.Reference | _v31.Reference | None,
+    refs: set[str],
+) -> None:
+    """Recursively collect all $ref names from a schema or reference."""
+    if schema is None:
+        return
+    if isinstance(schema, _REFERENCE_TYPES):
+        refs.add(_ref_to_name(schema.ref))
+        return
+    if not isinstance(schema, _SCHEMA_TYPES):
+        return
+    for sub in schema.allOf or []:
+        _collect_refs_from_schema(sub, refs)
+    for sub in schema.anyOf or []:
+        _collect_refs_from_schema(sub, refs)
+    for sub in schema.oneOf or []:
+        _collect_refs_from_schema(sub, refs)
+    _collect_refs_from_schema(schema.items, refs)
+    for prop in (schema.properties or {}).values():
+        _collect_refs_from_schema(prop, refs)
+
+
+def _collect_schema_refs(
+    operation: _v30.Operation | _v31.Operation,
+) -> set[str]:
+    """Collect all $ref names used by an operation's parameters, request body, and responses."""
+    refs: set[str] = set()
+
+    for param in operation.parameters or []:
+        if isinstance(param, _REFERENCE_TYPES):
+            refs.add(_ref_to_name(param.ref))
+        elif isinstance(param, _PARAMETER_TYPES):
+            _collect_refs_from_schema(param.param_schema, refs)
+
+    rb = operation.requestBody
+    if isinstance(rb, _REFERENCE_TYPES):
+        refs.add(_ref_to_name(rb.ref))
+    elif rb is not None:
+        for media in (rb.content or {}).values():
+            _collect_refs_from_schema(media.media_type_schema, refs)
+
+    responses = operation.responses or {}
+    for response in responses.values():
+        if isinstance(response, _REFERENCE_TYPES):
+            refs.add(_ref_to_name(response.ref))
+        else:
+            for media in (response.content or {}).values():
+                _collect_refs_from_schema(media.media_type_schema, refs)
+
+    return refs
 
 
 def _resolve_parameter(
@@ -396,49 +455,21 @@ def _compare_responses(
     return changes
 
 
+def _build_schema_to_operations_index(
+    ops: dict[tuple[str, str], _v30.Operation | _v31.Operation],
+) -> dict[str, list[tuple[str, str]]]:
+    """Build a reverse index mapping schema name → list of (path, method) that reference it."""
+    index: dict[str, list[tuple[str, str]]] = {}
+    for (path, method), op in ops.items():
+        for schema_name in _collect_schema_refs(op):
+            index.setdefault(schema_name, []).append((path, method))
+    return index
+
+
 def compare(base: OpenAPIParser, head: OpenAPIParser) -> APIDiff:
     """Compare two OpenAPI specs and return a structured diff."""
     base_ops = {(path, str(method)): op for path, method, op in base.endpoints}
     head_ops = {(path, str(method)): op for path, method, op in head.endpoints}
-
-    operation_changes: list[OperationChange] = []
-
-    for path, method in set(base_ops) - set(head_ops):
-        operation_changes.append(
-            OperationChange(path=path, method=method, change_type=ChangeType.REMOVED)
-        )
-
-    for path, method in set(head_ops) - set(base_ops):
-        operation_changes.append(
-            OperationChange(path=path, method=method, change_type=ChangeType.ADDED)
-        )
-
-    for path, method in set(base_ops) & set(head_ops):
-        base_op = base_ops[(path, method)]
-        head_op = head_ops[(path, method)]
-        param_changes = _compare_parameters(
-            base_op.parameters or [],
-            head_op.parameters or [],
-            base,
-            head,
-        )
-        rb_change = _compare_request_body(
-            base_op.requestBody, head_op.requestBody, base, head
-        )
-        resp_changes = _compare_responses(
-            base_op.responses, head_op.responses, base, head
-        )
-        if param_changes or rb_change is not None or resp_changes:
-            operation_changes.append(
-                OperationChange(
-                    path=path,
-                    method=method,
-                    change_type=ChangeType.MODIFIED,
-                    parameter_changes=param_changes,
-                    request_body_change=rb_change,
-                    response_changes=resp_changes,
-                )
-            )
 
     base_schemas = dict(base.schemas)
     head_schemas = dict(head.schemas)
@@ -472,6 +503,59 @@ def compare(base: OpenAPIParser, head: OpenAPIParser) -> APIDiff:
                     name=name,
                     change_type=ChangeType.MODIFIED,
                     property_changes=property_changes,
+                )
+            )
+
+    changed_schema_names = {
+        sc.name for sc in schema_changes if sc.change_type != ChangeType.ADDED
+    }
+    head_schema_index = _build_schema_to_operations_index(head_ops)
+    base_schema_index = _build_schema_to_operations_index(base_ops)
+
+    operation_changes: list[OperationChange] = []
+
+    for path, method in set(base_ops) - set(head_ops):
+        operation_changes.append(
+            OperationChange(path=path, method=method, change_type=ChangeType.REMOVED)
+        )
+
+    for path, method in set(head_ops) - set(base_ops):
+        operation_changes.append(
+            OperationChange(path=path, method=method, change_type=ChangeType.ADDED)
+        )
+
+    for path, method in set(base_ops) & set(head_ops):
+        base_op = base_ops[(path, method)]
+        head_op = head_ops[(path, method)]
+        param_changes = _compare_parameters(
+            base_op.parameters or [],
+            head_op.parameters or [],
+            base,
+            head,
+        )
+        rb_change = _compare_request_body(
+            base_op.requestBody, head_op.requestBody, base, head
+        )
+        resp_changes = _compare_responses(
+            base_op.responses, head_op.responses, base, head
+        )
+        affected_schemas = sorted(
+            schema_name
+            for schema_name in changed_schema_names
+            if (path, method)
+            in set(head_schema_index.get(schema_name, []))
+            | set(base_schema_index.get(schema_name, []))
+        )
+        if param_changes or rb_change is not None or resp_changes or affected_schemas:
+            operation_changes.append(
+                OperationChange(
+                    path=path,
+                    method=method,
+                    change_type=ChangeType.MODIFIED,
+                    parameter_changes=param_changes,
+                    request_body_change=rb_change,
+                    response_changes=resp_changes,
+                    affected_schema_changes=affected_schemas,
                 )
             )
 
@@ -531,6 +615,8 @@ def to_markdown(diff: APIDiff) -> str:
                     lines.append(
                         f"    - `{fc.field}`: `{fc.old_value}` → `{fc.new_value}`"
                     )
+            for schema_name in sorted(change.affected_schema_changes):
+                lines.append(f"  - ⚠️ Affected by schema change: `{schema_name}`")
         lines.append("")
 
     if diff.schema_changes:

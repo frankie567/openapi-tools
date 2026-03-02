@@ -64,7 +64,10 @@ def _schema_summary_md(schema: Schema | _v30.Reference | _v31.Reference | None) 
     return f"`{t.value}`"
 
 
-def _render_info_md(endpoint: Endpoint) -> str:
+def _render_info_md(
+    endpoint: Endpoint,
+    diff_service: DiffService,
+) -> str:
     _, _, operation = endpoint
     lines: list[str] = []
     if operation.description:
@@ -77,6 +80,15 @@ def _render_info_md(endpoint: Endpoint) -> str:
     if operation.deprecated:
         lines.append("")
         lines.append("**⚠ DEPRECATED**")
+
+    if diff_service.is_diff_available():
+        endpoint_changes = diff_service.get_endpoint_changes(endpoint)
+        if endpoint_changes and endpoint_changes.affected_schema_changes:
+            lines.append("")
+            lines.append("**⚠ Affected by schema changes:**")
+            for schema_name in endpoint_changes.affected_schema_changes:
+                lines.append(f"- [`{schema_name}`](schema:{schema_name})")
+
     if not lines:
         return "*No additional information available*"
     return "\n".join(lines)
@@ -480,7 +492,9 @@ class EndpointDetail(Widget):
         tabs = self.query_one("#endpoint-tabs", TabbedContent)
         tabs.add_class("-has-endpoint")
 
-        self.query_one("#tab-info-content", Markdown).update(_render_info_md(endpoint))
+        self.query_one("#tab-info-content", Markdown).update(
+            _render_info_md(endpoint, self.diff_service)
+        )
         parameters = cast(
             list[Parameter | _v30.Reference | _v31.Reference] | None,
             operation.parameters,
