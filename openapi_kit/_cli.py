@@ -29,10 +29,10 @@ def view(schema: str, base: str | None) -> None:
         parser = OpenAPIParser.from_source(schema)
     except FileNotFoundError:
         click.echo(f"Error: file not found: {schema}", err=True)
-        sys.exit(1)
+        sys.exit(2)
     except Exception as exc:  # noqa: BLE001
         click.echo(f"Error loading schema: {exc}", err=True)
-        sys.exit(1)
+        sys.exit(2)
 
     base_parser = None
     if base:
@@ -40,10 +40,10 @@ def view(schema: str, base: str | None) -> None:
             base_parser = OpenAPIParser.from_source(base)
         except FileNotFoundError:
             click.echo(f"Error: base file not found: {base}", err=True)
-            sys.exit(1)
+            sys.exit(2)
         except Exception as exc:  # noqa: BLE001
             click.echo(f"Error loading base schema: {exc}", err=True)
-            sys.exit(1)
+            sys.exit(2)
 
     app = OpenAPITUIApp(parser, source=schema, base_parser=base_parser)
     app.run()
@@ -83,23 +83,27 @@ def diff(
         base_parser = OpenAPIParser.from_source(base_schema)
     except FileNotFoundError:
         click.echo(f"Error: file not found: {base_schema}", err=True)
-        sys.exit(1)
+        sys.exit(2)
     except Exception as exc:  # noqa: BLE001
         click.echo(f"Error loading base schema: {exc}", err=True)
-        sys.exit(1)
+        sys.exit(2)
 
     try:
         head_parser = OpenAPIParser.from_source(head_schema)
     except FileNotFoundError:
         click.echo(f"Error: file not found: {head_schema}", err=True)
-        sys.exit(1)
+        sys.exit(2)
     except Exception as exc:  # noqa: BLE001
         click.echo(f"Error loading head schema: {exc}", err=True)
-        sys.exit(1)
+        sys.exit(2)
 
     result = compare(base_parser, head_parser)
 
     if output_format == "json":
         click.echo(to_json(result))
     else:
-        click.echo(to_markdown(result, heading_level=markdown_heading_level))
+        output = to_markdown(result, heading_level=markdown_heading_level)
+        if output:
+            click.echo(output)
+            sys.exit(1)
+        sys.exit(0)
