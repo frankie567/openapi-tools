@@ -19,7 +19,8 @@ def main() -> None:
 
 @main.command()
 @click.argument("schema", metavar="SCHEMA")
-def view(schema: str) -> None:
+@click.option("--base", help="Base schema path/URL for diff comparison")
+def view(schema: str, base: str | None) -> None:
     """Explore an OpenAPI schema in a terminal UI.
 
     SCHEMA can be a local file path (JSON or YAML) or a URL.
@@ -33,7 +34,18 @@ def view(schema: str) -> None:
         click.echo(f"Error loading schema: {exc}", err=True)
         sys.exit(1)
 
-    app = OpenAPITUIApp(parser, source=schema)
+    base_parser = None
+    if base:
+        try:
+            base_parser = OpenAPIParser.from_source(base)
+        except FileNotFoundError:
+            click.echo(f"Error: base file not found: {base}", err=True)
+            sys.exit(1)
+        except Exception as exc:  # noqa: BLE001
+            click.echo(f"Error loading base schema: {exc}", err=True)
+            sys.exit(1)
+
+    app = OpenAPITUIApp(parser, source=schema, base_parser=base_parser)
     app.run()
 
 

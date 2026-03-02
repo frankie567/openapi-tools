@@ -12,7 +12,9 @@ from textual.message import Message
 from textual.widget import Widget
 from textual.widgets import ListItem, ListView, Markdown, Static
 
+from ..._diff import ChangeType, SchemaPropertyChange
 from ..._parser import NamedSchema, OpenAPIParser, Schema
+from .._diff_service import DiffService
 
 _REFERENCE_TYPES = (_v30.Reference, _v31.Reference)
 
@@ -110,10 +112,15 @@ def _prop_constraints(schema: Schema) -> str:
 
 
 def _schema_to_markdown(
-    openapi: OpenAPIParser, schema: _v30.Schema | _v31.Schema
+    openapi: OpenAPIParser,
+    diff_service: DiffService,
+    named_schema: NamedSchema,
 ) -> str:
     """Render a Schema as Markdown content."""
     lines: list[str] = []
+
+    name, referenced_schema = named_schema
+    schema: Schema = openapi.get_referenced(referenced_schema)  # type: ignore[assignment]
 
     if schema.description:
         lines.append(schema.description.strip())
@@ -128,6 +135,24 @@ def _schema_to_markdown(
         lines.append("| Property | Req | Type | Constraints | Description |")
         lines.append("| --- | --- | --- | --- | --- |")
         for prop_name, prop_schema in properties.items():
+            prop_change = diff_service.get_property_change(name, prop_name)
+
+            # Apply diff highlighting
+            name_color = ""
+            if isinstance(prop_change, SchemaPropertyChange):
+                if prop_change.change_type == ChangeType.ADDED:
+                    name_color = "green"
+                elif prop_change.change_type == ChangeType.REMOVED:
+                    name_color = "red"
+                elif prop_change.change_type == ChangeType.MODIFIED:
+                    name_color = "orange"
+
+            name_markup = (
+                f"[{name_color}]{prop_name}[/{name_color}]"
+                if name_color
+                else f"**{prop_name}**"
+            )
+
             req = "✱" if prop_name in required_fields else ""
             type_str = _prop_type_str(openapi, prop_schema)
 
@@ -144,8 +169,29 @@ def _schema_to_markdown(
                 .replace("\n", " ")
                 .strip()
             )
+
+            # Add change indicator for modified properties
+            change_indicator = ""
+            if prop_change and prop_change.change_type == ChangeType.MODIFIED:
+                change_details = []
+                for fc in prop_change.field_changes:
+                    if fc.field == "required":
+                        change_details.append(
+                            f"required: {fc.old_value} → {fc.new_value}"
+                        )
+                    elif fc.field == "type":
+                        change_details.append(f"type: {fc.old_value} → {fc.new_value}")
+                    elif fc.field == "description":
+                        change_details.append("description changed")
+                    elif fc.field == "enum":
+                        change_details.append("enum values changed")
+                if change_details:
+                    change_indicator = (
+                        f"  ([orange]{', '.join(change_details)}[/orange])"
+                    )
+
             lines.append(
-                f"| **{prop_name}** | {req} | {type_str} | {constraints} | {desc} |"
+                f"| {name_markup} | {req} | {type_str} | {constraints} | {desc} {change_indicator}|"
             )
         lines.append("")
 
@@ -196,9 +242,10 @@ class SchemaItem(ListItem):
     }
     """
 
-    def __init__(self, schema: NamedSchema) -> None:
+    def __init__(self, schema: NamedSchema, diff_service: DiffService) -> None:
         super().__init__()
         self.schema = schema
+        self.diff_service = diff_service
 
     def compose(self) -> ComposeResult:
         name, schema = self.schema
@@ -207,8 +254,17 @@ class SchemaItem(ListItem):
             if isinstance(schema, (_v30.Schema, _v31.Schema))
             else ""
         )
+
+        # Add diff indicator if available
+        diff_indicator = ""
+        if self.diff_service.is_diff_available():
+            change_type = self.diff_service.get_schema_change_type(name)
+            if change_type:
+                icon = self.diff_service.get_change_icon(change_type)
+                diff_indicator = f"  {icon}"
+
         yield Static(
-            f"[bold]{name}[/bold]  {type_markup}",
+            f"[bold]{name}[/bold]  {type_markup}{diff_indicator}",
             markup=True,
         )
 
@@ -247,12 +303,14 @@ class SchemaDetail(Widget):
     def __init__(
         self,
         openapi: OpenAPIParser,
+        diff_service: DiffService,
         in_endpoint_screen: bool = False,
         **kwargs: Any,
     ) -> None:
         super().__init__(**kwargs)
         self.openapi = openapi
         self.in_endpoint_screen = in_endpoint_screen
+        self.diff_service = diff_service
         self._schema: NamedSchema | None = None
         self._history: list[NamedSchema] = []
 
@@ -326,7 +384,16 @@ class SchemaDetail(Widget):
             if isinstance(schema, (_v30.Schema, _v31.Schema))
             else ""
         )
-        self.border_title = f"[bold]{name}[/bold] {type_markup}"
+
+        # Add diff indicator if available
+        diff_indicator = ""
+        if self.diff_service.is_diff_available():
+            change_type = self.diff_service.get_schema_change_type(name)
+            if change_type:
+                icon = self.diff_service.get_change_icon(change_type)
+                diff_indicator = f"  {icon}"
+
+        self.border_title = f"[bold]{name}[/bold] {type_markup}{diff_indicator}"
         if self._history:
             trail = " › ".join(s[0] for s in self._history) + f" › {name}"
             self.border_subtitle = f"{trail}  b: back"
@@ -338,7 +405,9 @@ class SchemaDetail(Widget):
         md = self.query_one("#schema-markdown", Markdown)
         md.display = True
         if isinstance(schema, (_v30.Schema, _v31.Schema)):
-            md.update(_schema_to_markdown(self.openapi, schema))
+            md.update(
+                _schema_to_markdown(self.openapi, self.diff_service, self._schema)
+            )
 
 
 class SchemasList(Widget):
@@ -366,9 +435,10 @@ class SchemasList(Widget):
             super().__init__()
             self.schema = schema
 
-    def __init__(self, openapi: OpenAPIParser) -> None:
+    def __init__(self, openapi: OpenAPIParser, diff_service: DiffService) -> None:
         super().__init__()
         self.openapi = openapi
+        self.diff_service = diff_service
 
     def compose(self) -> ComposeResult:
         yield ListView(id="schemas-list")
@@ -385,7 +455,9 @@ class SchemasList(Widget):
         list_view = self.query_one("#schemas-list", ListView)
         list_view.clear()
         for name, schema in self.openapi.schemas:
-            list_view.append(SchemaItem((name, schema)))
+            if not self.diff_service.should_show_schema(name):
+                continue
+            list_view.append(SchemaItem((name, schema), self.diff_service))
 
     def on_list_view_selected(self, event: ListView.Selected) -> None:
         if isinstance(event.item, SchemaItem):
@@ -398,3 +470,7 @@ class SchemasList(Widget):
             if isinstance(item, SchemaItem) and item.schema[0] == name:
                 list_view.index = idx
                 break
+
+    def apply_diff_filtering(self) -> None:
+        """Apply diff filtering to the schemas list."""
+        self._rebuild_list()

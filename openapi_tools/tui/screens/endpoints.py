@@ -4,6 +4,7 @@ from textual.screen import Screen
 from textual.widgets import Footer, Header
 
 from ..._parser import NamedSchema, OpenAPIParser
+from .._diff_service import DiffService
 from ..widgets.endpoints_detail import EndpointDetail
 from ..widgets.endpoints_list import EndpointsList
 from ..widgets.schemas_list import SchemaDetail
@@ -29,18 +30,20 @@ class EndpointsScreen(Screen[None]):
     }
     """
 
-    def __init__(self, openapi: OpenAPIParser) -> None:
+    def __init__(self, openapi: OpenAPIParser, diff_service: DiffService) -> None:
         super().__init__()
         self.openapi = openapi
+        self.diff_service = diff_service
 
     def compose(self) -> ComposeResult:
         yield Header()
-        yield EndpointsList(self.openapi)
+        yield EndpointsList(self.openapi, self.diff_service)
         with Container(id="endpoints-right"):
-            yield EndpointDetail()
+            yield EndpointDetail(self.diff_service)
             yield SchemaDetail(
                 self.openapi,
                 in_endpoint_screen=True,
+                diff_service=self.diff_service,
                 id="endpoint-schema-panel",
             )
         yield Footer()
@@ -77,3 +80,7 @@ class EndpointsScreen(Screen[None]):
         self.query_one(EndpointsList).reload(openapi)
         self.query_one(EndpointDetail).reset()
         self.query_one("#endpoint-schema-panel", SchemaDetail).reload(openapi)
+
+    def apply_diff_filtering(self) -> None:
+        """Apply diff filtering to the endpoints list."""
+        self.query_one(EndpointsList).apply_diff_filtering()

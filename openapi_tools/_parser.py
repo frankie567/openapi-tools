@@ -149,6 +149,12 @@ class OpenAPIParser:
             )
         return resolved
 
+    def get_referenced[T](self, item: Reference | T) -> T:
+        """If the item is a Reference, resolve it; otherwise return it as-is."""
+        if isinstance(item, Reference):
+            return self.resolve_reference(item)
+        return item
+
 
 __all__ = [
     "OpenAPIParser",

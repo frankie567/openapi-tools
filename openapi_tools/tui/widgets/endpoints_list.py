@@ -6,12 +6,26 @@ from textual.widget import Widget
 from textual.widgets import Tree
 
 from ..._parser import Endpoint, Method, OpenAPIParser
+from .._diff_service import DiffService
 from .._utils import get_method_color
 
 
 def _method_markup(method: Method) -> str:
     color = get_method_color(method)
     return f"[bold {color}]{method.upper():<7}[/]"
+
+
+def _get_endpoint_markup(endpoint: Endpoint, diff_service: DiffService) -> str:
+    """Get markup for an endpoint with diff highlighting."""
+    path, method, _ = endpoint
+
+    if diff_service.is_diff_available():
+        change_type = diff_service.get_endpoint_change_type(endpoint)
+        if change_type:
+            icon = diff_service.get_change_icon(change_type)
+            return f"{icon} {_method_markup(method)} {path}"
+
+    return f"{_method_markup(method)} {path}"
 
 
 class EndpointsList(Widget):
@@ -39,9 +53,10 @@ class EndpointsList(Widget):
             super().__init__()
             self.endpoint = endpoint
 
-    def __init__(self, openapi: OpenAPIParser) -> None:
+    def __init__(self, openapi: OpenAPIParser, diff_service: DiffService) -> None:
         super().__init__()
         self.openapi = openapi
+        self.diff_service = diff_service
 
     def compose(self) -> ComposeResult:
         yield Tree("Endpoints", id="endpoints-tree")
@@ -55,6 +70,10 @@ class EndpointsList(Widget):
 
     def reload(self, openapi: OpenAPIParser) -> None:
         self.openapi = openapi
+        self._rebuild_tree()
+
+    def apply_diff_filtering(self) -> None:
+        """Apply diff filtering to the endpoints list."""
         self._rebuild_tree()
 
     def _rebuild_tree(self) -> None:
@@ -74,8 +93,12 @@ class EndpointsList(Widget):
                 expand=True,
             )
             for endpoint in endpoints_by_tag[tag]:
-                path, method, operation = endpoint
-                tag_node.add_leaf(f"{_method_markup(method)} {path}", data=endpoint)
+                if not self.diff_service.should_show_endpoint(endpoint):
+                    continue
+                _, _, operation = endpoint
+                tag_node.add_leaf(
+                    _get_endpoint_markup(endpoint, self.diff_service), data=endpoint
+                )
 
     def on_tree_node_selected(self, event: Tree.NodeSelected[Endpoint]) -> None:
         endpoint = event.node.data
